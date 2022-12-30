@@ -237,6 +237,7 @@ class VectorValues {
   void insert(size_t j, Vector value);
   Vector vector() const;
   Vector at(size_t j) const;
+  Vector vector(const gtsam::KeyVector& keys) const;
   void update(const gtsam::VectorValues& values);
 
   //Advanced Interface
@@ -405,6 +406,7 @@ class GaussianFactorGraph {
   gtsam::VectorValues optimizeGradientSearch() const;
   gtsam::VectorValues gradient(const gtsam::VectorValues& x0) const;
   gtsam::VectorValues gradientAtZero() const;
+  gtsam::VectorValues optimizeDensely() const;
 
   // Elimination and marginals
   gtsam::GaussianBayesNet* eliminateSequential();
