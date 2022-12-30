@@ -6,16 +6,18 @@ namespace gtsam {
 
 #include <gtsam/hybrid/HybridValues.h>
 class HybridValues {
-  gtsam::DiscreteValues discrete() const;
   gtsam::VectorValues continuous() const;
+  gtsam::DiscreteValues discrete() const;
+
   HybridValues();
-  HybridValues(const gtsam::DiscreteValues &dv, const gtsam::VectorValues &cv);
+  HybridValues(const gtsam::VectorValues &cv, const gtsam::DiscreteValues &dv);
   void print(string s = "HybridValues",
              const gtsam::KeyFormatter& keyFormatter =
                  gtsam::DefaultKeyFormatter) const;
   bool equals(const gtsam::HybridValues& other, double tol) const;
   void insert(gtsam::Key j, int value);
   void insert(gtsam::Key j, const gtsam::Vector& value);
+  void update(const gtsam::VectorValues& values);
   size_t& atDiscrete(gtsam::Key j);
   gtsam::Vector& at(gtsam::Key j);
 };
@@ -54,7 +56,7 @@ virtual class HybridDiscreteFactor {
 
 #include <gtsam/hybrid/GaussianMixtureFactor.h>
 class GaussianMixtureFactor : gtsam::HybridFactor {
-  static GaussianMixtureFactor FromFactors(
+  GaussianMixtureFactor(
       const gtsam::KeyVector& continuousKeys,
       const gtsam::DiscreteKeys& discreteKeys,
       const std::vector<gtsam::GaussianFactor::shared_ptr>& factorsList);
@@ -66,12 +68,13 @@ class GaussianMixtureFactor : gtsam::HybridFactor {
 
 #include <gtsam/hybrid/GaussianMixture.h>
 class GaussianMixture : gtsam::HybridFactor {
-  static GaussianMixture FromConditionals(
-      const gtsam::KeyVector& continuousFrontals,
-      const gtsam::KeyVector& continuousParents,
-      const gtsam::DiscreteKeys& discreteParents,
-      const std::vector<gtsam::GaussianConditional::shared_ptr>&
-          conditionalsList);
+  GaussianMixture(const gtsam::KeyVector& continuousFrontals,
+                  const gtsam::KeyVector& continuousParents,
+                  const gtsam::DiscreteKeys& discreteParents,
+                  const std::vector<gtsam::GaussianConditional::shared_ptr>&
+                      conditionalsList);
+
+  gtsam::GaussianMixtureFactor* likelihood(const gtsam::VectorValues &frontals) const;
 
   void print(string s = "GaussianMixture\n",
              const gtsam::KeyFormatter& keyFormatter =
@@ -87,7 +90,6 @@ class HybridBayesTreeClique {
   // double evaluate(const gtsam::HybridValues& values) const;
 };
 
-#include <gtsam/hybrid/HybridBayesTree.h>
 class HybridBayesTree {
   HybridBayesTree();
   void print(string s = "HybridBayesTree\n",
@@ -105,14 +107,43 @@ class HybridBayesTree {
                  gtsam::DefaultKeyFormatter) const;
 };
 
+#include <gtsam/hybrid/HybridBayesNet.h>
 class HybridBayesNet {
   HybridBayesNet();
   void add(const gtsam::HybridConditional& s);
+  void addMixture(const gtsam::GaussianMixture* s);
+  void addGaussian(const gtsam::GaussianConditional* s);
+  void addDiscrete(const gtsam::DiscreteConditional* s);
+
+  void emplaceMixture(const gtsam::GaussianMixture& s);
+  void emplaceMixture(const gtsam::KeyVector& continuousFrontals,
+                      const gtsam::KeyVector& continuousParents,
+                      const gtsam::DiscreteKeys& discreteParents,
+                      const std::vector<gtsam::GaussianConditional::shared_ptr>&
+                          conditionalsList);
+  void emplaceGaussian(const gtsam::GaussianConditional& s);
+  void emplaceDiscrete(const gtsam::DiscreteConditional& s);
+  void emplaceDiscrete(const gtsam::DiscreteKey& key, string spec);
+  void emplaceDiscrete(const gtsam::DiscreteKey& key,
+                       const gtsam::DiscreteKeys& parents, string spec);
+  void emplaceDiscrete(const gtsam::DiscreteKey& key,
+                       const std::vector<gtsam::DiscreteKey>& parents,
+                       string spec);
+
+  gtsam::GaussianMixture* atMixture(size_t i) const;
+  gtsam::GaussianConditional* atGaussian(size_t i) const;
+  gtsam::DiscreteConditional* atDiscrete(size_t i) const;
+
   bool empty() const;
   size_t size() const;
   gtsam::KeySet keys() const;
   const gtsam::HybridConditional* at(size_t i) const;
+  
+  double evaluate(const gtsam::HybridValues& x) const;
   gtsam::HybridValues optimize() const;
+  gtsam::HybridValues sample(const gtsam::HybridValues &given) const;
+  gtsam::HybridValues sample() const;
+
   void print(string s = "HybridBayesNet\n",
              const gtsam::KeyFormatter& keyFormatter =
                  gtsam::DefaultKeyFormatter) const;
@@ -139,9 +170,8 @@ class HybridGaussianFactorGraph {
   void push_back(const gtsam::HybridBayesNet& bayesNet);
   void push_back(const gtsam::HybridBayesTree& bayesTree);
   void push_back(const gtsam::GaussianMixtureFactor* gmm);
-
-  void add(gtsam::DecisionTreeFactor* factor);
-  void add(gtsam::JacobianFactor* factor);
+  void push_back(gtsam::DecisionTreeFactor* factor);
+  void push_back(gtsam::JacobianFactor* factor);
 
   bool empty() const;
   void remove(size_t i);
@@ -151,6 +181,12 @@ class HybridGaussianFactorGraph {
 
   void print(string s = "") const;
   bool equals(const gtsam::HybridGaussianFactorGraph& fg, double tol = 1e-9) const;
+
+  // evaluation
+  double error(const gtsam::VectorValues& continuousValues,
+               const gtsam::DiscreteValues& discreteValues) const;
+  double probPrime(const gtsam::VectorValues& continuousValues,
+                   const gtsam::DiscreteValues& discreteValues) const;
 
   gtsam::HybridBayesNet* eliminateSequential();
   gtsam::HybridBayesNet* eliminateSequential(
@@ -196,22 +232,24 @@ class HybridNonlinearFactorGraph {
 
 #include <gtsam/hybrid/MixtureFactor.h>
 class MixtureFactor : gtsam::HybridFactor {
-  MixtureFactor(const gtsam::KeyVector& keys, const gtsam::DiscreteKeys& discreteKeys,
-                const gtsam::DecisionTree<gtsam::Key, gtsam::NonlinearFactor*>& factors, bool normalized = false);
+  MixtureFactor(
+      const gtsam::KeyVector& keys, const gtsam::DiscreteKeys& discreteKeys,
+      const gtsam::DecisionTree<gtsam::Key, gtsam::NonlinearFactor*>& factors,
+      bool normalized = false);
 
   template <FACTOR = {gtsam::NonlinearFactor}>
   MixtureFactor(const gtsam::KeyVector& keys, const gtsam::DiscreteKeys& discreteKeys,
                 const std::vector<FACTOR*>& factors,
                 bool normalized = false);
 
-  double error(const gtsam::Values& continuousVals,
-               const gtsam::DiscreteValues& discreteVals) const;
+  double error(const gtsam::Values& continuousValues,
+               const gtsam::DiscreteValues& discreteValues) const;
 
   double nonlinearFactorLogNormalizingConstant(const gtsam::NonlinearFactor* factor,
                                                const gtsam::Values& values) const;
 
   GaussianMixtureFactor* linearize(
-      const gtsam::Values& continuousVals) const;
+      const gtsam::Values& continuousValues) const;
 
   void print(string s = "MixtureFactor\n",
              const gtsam::KeyFormatter& keyFormatter =

@@ -8,7 +8,7 @@
 
 /**
  * @file    HybridBayesNet.h
- * @brief   A bayes net of Gaussian Conditionals indexed by discrete keys.
+ * @brief   A Bayes net of Gaussian Conditionals indexed by discrete keys.
  * @author  Varun Agrawal
  * @author  Fan Jiang
  * @author  Frank Dellaert
@@ -43,7 +43,7 @@ class GTSAM_EXPORT HybridBayesNet : public BayesNet<HybridConditional> {
   /// @name Standard Constructors
   /// @{
 
-  /** Construct empty bayes net */
+  /** Construct empty Bayes net */
   HybridBayesNet() = default;
 
   /// @}
@@ -69,10 +69,40 @@ class GTSAM_EXPORT HybridBayesNet : public BayesNet<HybridConditional> {
   /// Add HybridConditional to Bayes Net
   using Base::add;
 
+  /// Add a Gaussian Mixture to the Bayes Net.
+  void addMixture(const GaussianMixture::shared_ptr &ptr) {
+    push_back(HybridConditional(ptr));
+  }
+
+  /// Add a Gaussian conditional to the Bayes Net.
+  void addGaussian(const GaussianConditional::shared_ptr &ptr) {
+    push_back(HybridConditional(ptr));
+  }
+
   /// Add a discrete conditional to the Bayes Net.
-  void add(const DiscreteKey &key, const std::string &table) {
-    push_back(
-        HybridConditional(boost::make_shared<DiscreteConditional>(key, table)));
+  void addDiscrete(const DiscreteConditional::shared_ptr &ptr) {
+    push_back(HybridConditional(ptr));
+  }
+
+  /// Add a Gaussian Mixture to the Bayes Net.
+  template <typename... T>
+  void emplaceMixture(T &&...args) {
+    push_back(HybridConditional(
+        boost::make_shared<GaussianMixture>(std::forward<T>(args)...)));
+  }
+
+  /// Add a Gaussian conditional to the Bayes Net.
+  template <typename... T>
+  void emplaceGaussian(T &&...args) {
+    push_back(HybridConditional(
+        boost::make_shared<GaussianConditional>(std::forward<T>(args)...)));
+  }
+
+  /// Add a discrete conditional to the Bayes Net.
+  template <typename... T>
+  void emplaceDiscrete(T &&...args) {
+    push_back(HybridConditional(
+        boost::make_shared<DiscreteConditional>(std::forward<T>(args)...)));
   }
 
   using Base::push_back;
@@ -94,6 +124,14 @@ class GTSAM_EXPORT HybridBayesNet : public BayesNet<HybridConditional> {
    * @return GaussianBayesNet
    */
   GaussianBayesNet choose(const DiscreteValues &assignment) const;
+
+  /// Evaluate hybrid probability density for given HybridValues.
+  double evaluate(const HybridValues &values) const;
+
+  /// Evaluate hybrid probability density for given HybridValues, sugar.
+  double operator()(const HybridValues &values) const {
+    return evaluate(values);
+  }
 
   /**
    * @brief Solve the HybridBayesNet by first computing the MPE of all the
@@ -120,9 +158,82 @@ class GTSAM_EXPORT HybridBayesNet : public BayesNet<HybridConditional> {
    */
   DecisionTreeFactor::shared_ptr discreteConditionals() const;
 
- public:
+  /**
+   * @brief Sample from an incomplete BayesNet, given missing variables.
+   *
+   * Example:
+   *   std::mt19937_64 rng(42);
+   *   VectorValues given = ...;
+   *   auto sample = bn.sample(given, &rng);
+   *
+   * @param given Values of missing variables.
+   * @param rng The pseudo-random number generator.
+   * @return HybridValues
+   */
+  HybridValues sample(const HybridValues &given, std::mt19937_64 *rng) const;
+
+  /**
+   * @brief Sample using ancestral sampling.
+   *
+   * Example:
+   *   std::mt19937_64 rng(42);
+   *   auto sample = bn.sample(&rng);
+   *
+   * @param rng The pseudo-random number generator.
+   * @return HybridValues
+   */
+  HybridValues sample(std::mt19937_64 *rng) const;
+
+  /**
+   * @brief Sample from an incomplete BayesNet, use default rng.
+   *
+   * @param given Values of missing variables.
+   * @return HybridValues
+   */
+  HybridValues sample(const HybridValues &given) const;
+
+  /**
+   * @brief Sample using ancestral sampling, use default rng.
+   *
+   * @return HybridValues
+   */
+  HybridValues sample() const;
+
   /// Prune the Hybrid Bayes Net such that we have at most maxNrLeaves leaves.
   HybridBayesNet prune(size_t maxNrLeaves);
+
+  /**
+   * @brief 0.5 * sum of squared Mahalanobis distances
+   * for a specific discrete assignment.
+   *
+   * @param continuousValues Continuous values at which to compute the error.
+   * @param discreteValues Discrete assignment for a specific mode sequence.
+   * @return double
+   */
+  double error(const VectorValues &continuousValues,
+               const DiscreteValues &discreteValues) const;
+
+  /**
+   * @brief Compute conditional error for each discrete assignment,
+   * and return as a tree.
+   *
+   * @param continuousValues Continuous values at which to compute the error.
+   * @return AlgebraicDecisionTree<Key>
+   */
+  AlgebraicDecisionTree<Key> error(const VectorValues &continuousValues) const;
+
+  /**
+   * @brief Compute unnormalized probability q(μ|M),
+   * for each discrete assignment, and return as a tree.
+   * q(μ|M) is the unnormalized probability at the MLE point μ,
+   * conditioned on the discrete variables.
+   *
+   * @param continuousValues Continuous values at which to compute the
+   * probability.
+   * @return AlgebraicDecisionTree<Key>
+   */
+  AlgebraicDecisionTree<Key> probPrime(
+      const VectorValues &continuousValues) const;
 
   /// @}
 

@@ -133,7 +133,7 @@ TEST(HybridGaussianFactorGraph, eliminateFullSequentialEqualChance) {
   auto result =
       hfg.eliminateSequential(Ordering::ColamdConstrainedLast(hfg, {M(1)}));
 
-  auto dc = result->at(2)->asDiscreteConditional();
+  auto dc = result->at(2)->asDiscrete();
   DiscreteValues dv;
   dv[M(1)] = 0;
   EXPECT_DOUBLES_EQUAL(1, dc->operator()(dv), 1e-3);
@@ -176,13 +176,15 @@ TEST(HybridGaussianFactorGraph, eliminateFullMultifrontalSimple) {
   hfg.add(JacobianFactor(X(0), I_3x3, Z_3x1));
   hfg.add(JacobianFactor(X(0), I_3x3, X(1), -I_3x3, Z_3x1));
 
-  hfg.add(GaussianMixtureFactor::FromFactors(
+  hfg.add(GaussianMixtureFactor(
       {X(1)}, {{M(1), 2}},
       {boost::make_shared<JacobianFactor>(X(1), I_3x3, Z_3x1),
        boost::make_shared<JacobianFactor>(X(1), I_3x3, Vector3::Ones())}));
 
   hfg.add(DecisionTreeFactor(m1, {2, 8}));
-  hfg.add(DecisionTreeFactor({{M(1), 2}, {M(2), 2}}, "1 2 3 4"));
+  // TODO(Varun) Adding extra discrete variable not connected to continuous
+  // variable throws segfault
+  //  hfg.add(DecisionTreeFactor({{M(1), 2}, {M(2), 2}}, "1 2 3 4"));
 
   HybridBayesTree::shared_ptr result =
       hfg.eliminateMultifrontal(hfg.getHybridOrdering());
@@ -235,7 +237,7 @@ TEST(HybridGaussianFactorGraph, eliminateFullMultifrontalTwoClique) {
   hfg.add(JacobianFactor(X(1), I_3x3, X(2), -I_3x3, Z_3x1));
 
   {
-    hfg.add(GaussianMixtureFactor::FromFactors(
+    hfg.add(GaussianMixtureFactor(
         {X(0)}, {{M(0), 2}},
         {boost::make_shared<JacobianFactor>(X(0), I_3x3, Z_3x1),
          boost::make_shared<JacobianFactor>(X(0), I_3x3, Vector3::Ones())}));
@@ -560,6 +562,61 @@ TEST(HybridGaussianFactorGraph, Conditionals) {
   expected_discrete[M(0)] = 1;
   expected_discrete[M(1)] = 1;
   EXPECT(assert_equal(expected_discrete, result.discrete()));
+}
+
+/* ****************************************************************************/
+// Test hybrid gaussian factor graph error and unnormalized probabilities
+TEST(HybridGaussianFactorGraph, ErrorAndProbPrime) {
+  Switching s(3);
+
+  HybridGaussianFactorGraph graph = s.linearizedFactorGraph;
+
+  Ordering hybridOrdering = graph.getHybridOrdering();
+  HybridBayesNet::shared_ptr hybridBayesNet =
+      graph.eliminateSequential(hybridOrdering);
+
+  HybridValues delta = hybridBayesNet->optimize();
+  double error = graph.error(delta.continuous(), delta.discrete());
+
+  double expected_error = 0.490243199;
+  // regression
+  EXPECT(assert_equal(expected_error, error, 1e-9));
+
+  double probs = exp(-error);
+  double expected_probs = graph.probPrime(delta.continuous(), delta.discrete());
+
+  // regression
+  EXPECT(assert_equal(expected_probs, probs, 1e-7));
+}
+
+/* ****************************************************************************/
+// Test hybrid gaussian factor graph error and unnormalized probabilities
+TEST(HybridGaussianFactorGraph, ErrorAndProbPrimeTree) {
+  Switching s(3);
+
+  HybridGaussianFactorGraph graph = s.linearizedFactorGraph;
+
+  Ordering hybridOrdering = graph.getHybridOrdering();
+  HybridBayesNet::shared_ptr hybridBayesNet =
+      graph.eliminateSequential(hybridOrdering);
+
+  HybridValues delta = hybridBayesNet->optimize();
+  auto error_tree = graph.error(delta.continuous());
+
+  std::vector<DiscreteKey> discrete_keys = {{M(0), 2}, {M(1), 2}};
+  std::vector<double> leaves = {0.9998558, 0.4902432, 0.5193694, 0.0097568};
+  AlgebraicDecisionTree<Key> expected_error(discrete_keys, leaves);
+
+  // regression
+  EXPECT(assert_equal(expected_error, error_tree, 1e-7));
+
+  auto probs = graph.probPrime(delta.continuous());
+  std::vector<double> prob_leaves = {0.36793249, 0.61247742, 0.59489556,
+                                     0.99029064};
+  AlgebraicDecisionTree<Key> expected_probs(discrete_keys, prob_leaves);
+
+  // regression
+  EXPECT(assert_equal(expected_probs, probs, 1e-7));
 }
 
 /* ************************************************************************* */

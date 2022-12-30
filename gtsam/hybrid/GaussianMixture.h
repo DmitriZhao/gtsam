@@ -29,6 +29,8 @@
 
 namespace gtsam {
 
+class GaussianMixtureFactor;
+
 /**
  * @brief A conditional of gaussian mixtures indexed by discrete variables, as
  * part of a Bayes Network. This is the result of the elimination of a
@@ -112,20 +114,10 @@ class GTSAM_EXPORT GaussianMixture
    * @param discreteParents Discrete parents variables
    * @param conditionals List of conditionals
    */
-  static This FromConditionals(
+  GaussianMixture(
       const KeyVector &continuousFrontals, const KeyVector &continuousParents,
       const DiscreteKeys &discreteParents,
       const std::vector<GaussianConditional::shared_ptr> &conditionals);
-
-  /// @}
-  /// @name Standard API
-  /// @{
-
-  GaussianConditional::shared_ptr operator()(
-      const DiscreteValues &discreteVals) const;
-
-  /// Returns the total number of continuous components
-  size_t nrComponents() const;
 
   /// @}
   /// @name Testable
@@ -140,9 +132,45 @@ class GTSAM_EXPORT GaussianMixture
       const KeyFormatter &formatter = DefaultKeyFormatter) const override;
 
   /// @}
+  /// @name Standard API
+  /// @{
+
+  GaussianConditional::shared_ptr operator()(
+      const DiscreteValues &discreteValues) const;
+
+  /// Returns the total number of continuous components
+  size_t nrComponents() const;
+
+  /// Returns the continuous keys among the parents.
+  KeyVector continuousParents() const;
+
+  // Create a likelihood factor for a Gaussian mixture, return a Mixture factor
+  // on the parents.
+  boost::shared_ptr<GaussianMixtureFactor> likelihood(
+      const VectorValues &frontals) const;
 
   /// Getter for the underlying Conditionals DecisionTree
-  const Conditionals &conditionals();
+  const Conditionals &conditionals() const;
+
+  /**
+   * @brief Compute error of the GaussianMixture as a tree.
+   *
+   * @param continuousValues The continuous VectorValues.
+   * @return AlgebraicDecisionTree<Key> A decision tree with the same keys
+   * as the conditionals, and leaf values as the error.
+   */
+  AlgebraicDecisionTree<Key> error(const VectorValues &continuousValues) const;
+
+  /**
+   * @brief Compute the error of this Gaussian Mixture given the continuous
+   * values and a discrete assignment.
+   *
+   * @param continuousValues Continuous values at which to compute the error.
+   * @param discreteValues The discrete assignment for a specific mode sequence.
+   * @return double
+   */
+  double error(const VectorValues &continuousValues,
+               const DiscreteValues &discreteValues) const;
 
   /**
    * @brief Prune the decision tree of Gaussian factors as per the discrete
@@ -161,6 +189,7 @@ class GTSAM_EXPORT GaussianMixture
    * @return Sum
    */
   Sum add(const Sum &sum) const;
+  /// @}
 };
 
 /// Return the DiscreteKey vector as a set.

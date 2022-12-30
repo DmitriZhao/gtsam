@@ -46,7 +46,8 @@ namespace gtsam {
     return optimize(solution);
   }
 
-  VectorValues GaussianBayesNet::optimize(VectorValues solution) const {
+  VectorValues GaussianBayesNet::optimize(const VectorValues& given) const {
+    VectorValues solution = given;
     // (R*x)./sigmas = y by solving x=inv(R)*(y.*sigmas)
     // solve each node in reverse topological sort order (parents first)
     for (auto cg : boost::adaptors::reverse(*this)) {
@@ -64,8 +65,9 @@ namespace gtsam {
     return sample(result, rng);
   }
 
-  VectorValues GaussianBayesNet::sample(VectorValues result,
+  VectorValues GaussianBayesNet::sample(const VectorValues& given,
                                         std::mt19937_64* rng) const {
+    VectorValues result(given);
     // sample each node in reverse topological sort order (parents first)
     for (auto cg : boost::adaptors::reverse(*this)) {
       const VectorValues sampled = cg->sample(result, rng);
@@ -79,7 +81,7 @@ namespace gtsam {
     return sample(&kRandomNumberGenerator);
   }
 
-  VectorValues GaussianBayesNet::sample(VectorValues given) const {
+  VectorValues GaussianBayesNet::sample(const VectorValues& given) const {
     return sample(given, &kRandomNumberGenerator);
   }
 
@@ -217,16 +219,23 @@ namespace gtsam {
   double GaussianBayesNet::logDeterminant() const {
     double logDet = 0.0;
     for (const sharedConditional& cg : *this) {
-      if (cg->get_model()) {
-        Vector diag = cg->R().diagonal();
-        cg->get_model()->whitenInPlace(diag);
-        logDet += diag.unaryExpr([](double x) { return log(x); }).sum();
-      } else {
-        logDet +=
-            cg->R().diagonal().unaryExpr([](double x) { return log(x); }).sum();
-      }
+      logDet += cg->logDeterminant();
     }
     return logDet;
+  }
+
+  /* ************************************************************************* */
+  double GaussianBayesNet::logDensity(const VectorValues& x) const {
+    double sum = 0.0;
+    for (const auto& conditional : *this) {
+      if (conditional) sum += conditional->logDensity(x);
+    }
+    return sum;
+  }
+
+  /* ************************************************************************* */
+  double GaussianBayesNet::evaluate(const VectorValues& x) const {
+    return exp(logDensity(x));
   }
 
   /* ************************************************************************* */
